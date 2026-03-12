@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import polars as pl
@@ -10,33 +11,40 @@ from lfr.settings import HTML_DIR
 logger = logging.getLogger(__name__)
 
 
-def extract_profiles(path: Path) -> pl.DataFrame:
+def extract_profiles(path: Path) -> list[tuple[str, str]]:
     soup = BeautifulSoup(path.read_text(), "lxml")
-
-    user_names = []
-    display_names = []
+    seen = set()
+    results = []
     for profile in soup.select("a[rel='author']"):
-        user_names.append(profile["href"].split("/")[-1])
-        display_names.append(profile.text.strip())
-
-    return pl.DataFrame(
-        {
-            "user_name": user_names,
-            "display_name": display_names,
-        }
-    ).unique(subset=["user_name"])
+        user_name = profile["href"].split("/")[-1]
+        if user_name not in seen:
+            seen.add(user_name)
+            results.append((user_name, profile.text.strip()))
+    return results
 
 
 def main():
     logging.basicConfig(level=logging.WARNING)
 
-    pages = pl.Series(HTML_DIR.glob("**/*.html"))
+    pages = list(HTML_DIR.glob("**/*.html"))
 
-    pl.concat(
-        profiles_df
-        for profiles_df in tqdm(
-            (extract_profiles(file) for file in pages),
-            total=pages.len(),
+    all_profiles: list[tuple[str, str]] = []
+    with ProcessPoolExecutor() as executor:
+        for profiles in tqdm(
+            executor.map(extract_profiles, pages),
+            total=len(pages),
             desc="Extracting profiles from HTML files",
-        )
+        ):
+            all_profiles.extend(profiles)
+
+    if all_profiles:
+        user_names, display_names = zip(*all_profiles)
+    else:
+        user_names, display_names = [], []
+
+    pl.DataFrame(
+        {
+            "user_name": list(user_names),
+            "display_name": list(display_names),
+        }
     ).unique(subset=["user_name"]).sort("user_name").write_csv("profiles.csv")
