@@ -6,8 +6,31 @@ from tqdm import tqdm
 
 from lfr.client import get_client
 from lfr.settings import HTML_DIR
+from lfr.utils import path_to_url, url_to_path
 
 logger = logging.getLogger(__name__)
+
+
+def update_page(url, client):
+    try:
+        r = client.get(url)
+        r.raise_for_status()
+    except Exception as e:
+        logger.error(f"Failed to fetch page {url}", exc_info=e)
+        return
+
+    path = url_to_path(url)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            f.write(r.text)
+    except Exception as e:
+        logger.error(f"Failed to write page {url}", exc_info=e)
+
+        # Remove the file if it was partially written
+        path.unlink(missing_ok=True)
+
+    return url
 
 
 def main():
@@ -27,9 +50,7 @@ def main():
     html_df = pl.DataFrame(
         {
             "path": html_files,
-            "url": [
-                "/" + str(f.relative_to(HTML_DIR).parent / f.stem) for f in html_files
-            ],
+            "url": [path_to_url(f) for f in html_files],
             "lastmod": [datetime.fromtimestamp(f.stat().st_mtime) for f in html_files],
         }
     )
@@ -49,30 +70,17 @@ def main():
         html_df = html_df.filter(html_df["url"].is_in(sitemap_df["url"]))
 
     # Search for pages to update: pages that are in the sitemap, and either not in the HTML directory, or have a more recent lastmod date in the sitemap
-    pages_to_update = sitemap_df.join(html_df, on="url", how="left").filter(
-        (pl.col("lastmod") > pl.col("lastmod_right"))
-        | pl.col("lastmod_right").is_null()
-    )["url"]
-
+    pages_to_update = (
+        sitemap_df.join(html_df, on="url", how="left")
+        .filter(
+            (pl.col("lastmod") > pl.col("lastmod_right"))
+            | pl.col("lastmod_right").is_null()
+        )
+        .sort("lastmod")["url"]
+    )
     logger.info("Found %d pages to update", len(pages_to_update))
 
     with get_client() as client:
         for url in tqdm(pages_to_update, desc="Updating pages"):
             tqdm.write(f"Updating page: {url}")
-
-            try:
-                r = client.get(url)
-                r.raise_for_status()
-            except Exception as e:
-                logger.error(f"Failed to fetch page {url}", exc_info=e)
-                continue
-
-            path = HTML_DIR / (url[1:] + ".html")
-            try:
-                with path.open("w", encoding="utf-8") as f:
-                    f.write(r.text)
-            except Exception as e:
-                logger.error(f"Failed to write page {url}", exc_info=e)
-
-                # Remove the file if it was partially written
-                path.unlink(missing_ok=True)
+            update_page(url, client)
