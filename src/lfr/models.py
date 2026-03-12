@@ -1,19 +1,18 @@
 import re
-
-from django.db import models
+from enum import StrEnum
 
 
 class UnknownKindError(Exception):
     pass
 
 
-class Kind(models.TextChoices):
-    NEWS = "news", "News"
-    DIARY = "diary", "Diary"
-    LINK = "link", "Link"
-    FORUM_POST = "forum_post", "Forum Post"
-    POLL = "poll", "Poll"
-    TICKET = "ticket", "Ticket"
+class Kind(StrEnum):
+    NEWS = "news"
+    DIARY = "diary"
+    LINK = "link"
+    FORUM_POST = "forum_post"
+    POLL = "poll"
+    TICKET = "ticket"
 
     @classmethod
     def from_url(cls, url: str) -> "Kind":
