@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 lfr_update_pages = "lfr.commands.update_pages:main"
+lfr_update_profiles = "lfr.commands.update_profiles:main"
 lfr_update_sitemap = "lfr.commands.update_sitemap:main"
 
 [build-system]
