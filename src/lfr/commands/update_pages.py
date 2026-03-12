@@ -1,5 +1,7 @@
 import logging
+import os
 from datetime import datetime
+from pathlib import Path
 
 import polars as pl
 from tqdm import tqdm
@@ -22,8 +24,8 @@ def update_page(url, client):
     path = url_to_path(url)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with path.open("w", encoding="utf-8") as f:
-            f.write(r.text)
+        with path.open("wb") as f:
+            f.write(r.content)
     except Exception as e:
         logger.error(f"Failed to write page {url}", exc_info=e)
 
@@ -31,6 +33,20 @@ def update_page(url, client):
         path.unlink(missing_ok=True)
 
     return url
+
+
+def scan_html_dir(html_dir: Path) -> pl.DataFrame:
+    """Single-pass scan: collect path, url, and mtime together."""
+    paths, urls, lastmods = [], [], []
+    for dirpath, _, filenames in os.walk(html_dir):
+        for fname in filenames:
+            if not fname.endswith(".html"):
+                continue
+            p = Path(dirpath) / fname
+            paths.append(p)
+            urls.append(path_to_url(p))
+            lastmods.append(datetime.fromtimestamp(p.stat().st_mtime))
+    return pl.DataFrame({"path": paths, "url": urls, "lastmod": lastmods})
 
 
 def main():
@@ -46,14 +62,7 @@ def main():
 
     # Search for pages in the HTML directory, and their change dates
     logger.info("Scanning HTML directory for existing pages")
-    html_files = pl.Series(HTML_DIR.glob("**/*.html"))
-    html_df = pl.DataFrame(
-        {
-            "path": html_files,
-            "url": [path_to_url(f) for f in html_files],
-            "lastmod": [datetime.fromtimestamp(f.stat().st_mtime) for f in html_files],
-        }
-    )
+    html_df = scan_html_dir(HTML_DIR)
     logger.info("Found %d HTML files in the directory", len(html_df))
 
     # Search for pages to delete: pages that are in the HTML directory but not in the sitemap
