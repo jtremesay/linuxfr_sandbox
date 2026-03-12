@@ -1,5 +1,8 @@
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
+from typing import Optional
 
 
 class UnknownKindError(Exception):
@@ -49,3 +52,20 @@ KIND_RE_MAP = {
     Kind.POLL: POLL_RE,
     Kind.TICKET: TICKET_RE,
 }
+
+
+@dataclass
+class SitemapEntry:
+    url: str
+    lastmod: datetime
+    kind: Kind
+
+
+@dataclass
+class Content:
+    url: str
+    title: str
+    body: str
+    score: int
+    user_name: Optional[str] = None
+    parent_url: Optional[str] = None

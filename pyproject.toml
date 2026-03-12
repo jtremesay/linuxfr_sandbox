@@ -13,10 +13,10 @@ dependencies = [
 ]
 
 [project.scripts]
+lfr_import_content = "lfr.commands.import_content:main"
 lfr_update_pages = "lfr.commands.update_pages:main"
 lfr_update_profiles = "lfr.commands.update_profiles:main"
 lfr_update_sitemap = "lfr.commands.update_sitemap:main"
-
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
