@@ -1,0 +1,23 @@
+services:
+  db:
+    image: "pgvector/pgvector:pg18-trixie"
+    environment:
+      POSTGRES_DB: "linuxfr"
+      POSTGRES_USER: "linuxfr"
+      POSTGRES_PASSWORD: "linuxfr"
+    volumes:
+      - linuxfr_pgvector_db:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+  
+  kv:
+    image: "valkey/valkey:9-alpine"
+    command: ["valkey-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - linuxfr_redis_db:/data
+    ports:
+      - "6379:6379"
+
+volumes:
+  linuxfr_pgvector_db:
+  linuxfr_redis_db:
