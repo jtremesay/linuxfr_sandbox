@@ -1,14 +1,27 @@
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 from celery import shared_task
 from django.db.transaction import atomic
-from tqdm import tqdm
 
 from linuxfr.client import LinuxFrClient
 from linuxfr.models import Page, SitemapEntry
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task
+def fetch_page(sitemap_entry_id: int):
+    sitemap_entry = SitemapEntry.objects.get(id=sitemap_entry_id)
+    with LinuxFrClient() as client:
+        Page.objects.update_or_create(
+            sitemap_entry=sitemap_entry,
+            defaults={
+                "content": client.get_page(sitemap_entry.location),
+                "fetched_at": datetime.now(timezone.utc),
+            },
+        )
 
 
 @shared_task
@@ -26,10 +39,8 @@ def fetch_sitemap():
             ).delete()
 
             # Update or create entries from the remote sitemap
-            for entry_data in tqdm(
-                remote_sitemap_entries_data, desc="Updating sitemap entries"
-            ):
-                sm_entry, _ = SitemapEntry.objects.update_or_create(
+            for entry_data in remote_sitemap_entries_data:
+                entry, _ = SitemapEntry.objects.update_or_create(
                     location=entry_data.location,
                     defaults={
                         "kind": entry_data.kind,
@@ -38,26 +49,66 @@ def fetch_sitemap():
                         "priority": entry_data.priority,
                     },
                 )
-                fetch_page.delay(sm_entry.id)
+
+                try:
+                    page = entry.page
+                except SitemapEntry.page.RelatedObjectDoesNotExist:
+                    page = None
+
+                if page is None or page.fetched_at < entry.last_modified:
+                    fetch_page.delay(entry.id)
 
 
 @shared_task
-def fetch_page(sitemap_entry_id: int, force: bool = False):
-    sitemap_entry = SitemapEntry.objects.select_related("page").get(id=sitemap_entry_id)
-    try:
-        page = sitemap_entry.page
-    except SitemapEntry.page.RelatedObjectDoesNotExist:
-        page = None
+def import_page_from_file(html_file_path: str, base_dir: str):
+    html_file_path = Path(html_file_path)
+    base_dir = Path(base_dir)
 
-    if page and not force and page.fetched_at > sitemap_entry.updated_at:
-        logger.info("Skipping fetch for %s as it is up to date", sitemap_entry.location)
+    location = "/" + html_file_path.relative_to(base_dir).with_suffix("").as_posix()
+    file_mod_time = datetime.fromtimestamp(
+        html_file_path.stat().st_mtime, tz=timezone.utc
+    )
+
+    entry = SitemapEntry.objects.get(location=location)
+    Page.objects.update_or_create(
+        sitemap_entry=entry,
+        defaults={
+            "content": html_file_path.read_bytes(),
+            "fetched_at": file_mod_time,
+        },
+    )
+
+
+@shared_task
+def import_pages_from_dir(html_dir: str):
+    html_dir = Path(html_dir)
+
+    if not html_dir.is_dir():
+        logger.error("Error: %s is not a valid directory", html_dir)
         return
 
-    with LinuxFrClient() as client:
-        Page.objects.update_or_create(
-            sitemap_entry=sitemap_entry,
-            defaults={
-                "content": client.get_page(sitemap_entry.location),
-                "fetched_at": datetime.now(timezone.utc),
-            },
+    for file_entry in html_dir.glob("**/*.html"):
+        location = "/" + file_entry.relative_to(html_dir).with_suffix("").as_posix()
+        try:
+            entry = SitemapEntry.objects.select_related("page").get(location=location)
+        except SitemapEntry.DoesNotExist:
+            logger.warning("No sitemap entry found for location %s, skipping", location)
+            continue
+
+        try:
+            page = entry.page
+        except SitemapEntry.page.RelatedObjectDoesNotExist:
+            page = None
+
+        file_mod_time = datetime.fromtimestamp(
+            file_entry.stat().st_mtime, tz=timezone.utc
         )
+
+        if page is not None and page.fetched_at >= file_mod_time:
+            logger.info(
+                "Page for location %s is up to date, skipping import",
+                location,
+            )
+            continue
+
+        import_page_from_file.delay(str(file_entry), str(html_dir))
