@@ -1,42 +1,47 @@
 services:
-  web:
-    build: .
-    environment:
-      DATABASE_URL: "postgres://linuxfr:linuxfr@db:5432/linuxfr"
-      REDIS_URL: "redis://kv:6379/0"
-    ports:
-      - "8000:8000"
-    #volumes:
-    #  - ./src:/app/src
-    depends_on:
-      db:
-        condition: service_healthy
-    develop:
-      watch:
-        - action: sync
-          path: ./src
-          target: /app/src
-        - action: rebuild
-          path: uv.lock
+  # web:
+  #   build: .
+  #   command: [ "./manage.py", "runserver", "0.0.0.0:8000" ]
+  #   environment:
+  #     DATABASE_URL: "postgres://linuxfr:linuxfr@db:5432/linuxfr"
+  #     REDIS_URL: "redis://kv:6379/0"
+  #   ports:
+  #     - "8000:8000"
+  #   # volumes:
+  #   #   - ./src:/app/src
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   develop:
+  #     watch:
+  #       - action: sync+restart
+  #         path: ./src
+  #         target: /app/src
+  #       - action: rebuild
+  #         path: uv.lock
+  #       - action: rebuild
+  #         path: Dockerfile
 
-  worker:
-    build: .
-    command: [ "watchfiles", "./run_worker.sh", "src" ]
-    environment:
-      DATABASE_URL: "postgres://linuxfr:linuxfr@db:5432/linuxfr"
-      REDIS_URL: "redis://kv:6379/0"
-    #volumes:
-    #  - ./src:/app/src
-    depends_on:
-      db:
-        condition: service_healthy
-    develop:
-      watch:
-        - action: sync
-          path: ./src
-          target: /app/src
-        - action: rebuild
-          path: uv.lock
+  # worker:
+  #   build: .
+  #   command: [ "watchfiles", "--filter=python", "./run_worker.sh", "src" ]
+  #   environment:
+  #     DATABASE_URL: "postgres://linuxfr:linuxfr@db:5432/linuxfr"
+  #     REDIS_URL: "redis://kv:6379/0"
+  #   volumes:
+  #     - ./src:/app/src
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  # develop:
+  #   watch:
+  #     - action: sync+restart
+  #       path: ./src
+  #       target: /app/src
+  #     - action: rebuild
+  #       path: uv.lock
+  #     - action: rebuild
+  #       path: Dockerfile
 
   db:
     image: "pgvector/pgvector:pg18-trixie"

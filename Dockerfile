@@ -20,4 +20,4 @@ COPY --chown=linuxfr:linuxfr src src
 RUN uv sync
 ENV UV_NO_SYNC=1
 
-CMD [ "manage.py", "runserver", "0.0.0.0:8000" ]
+CMD [ "daphne", "-b", "0.0.0.0", "-p", "8000", "linuxfr.asgi:application" ]
