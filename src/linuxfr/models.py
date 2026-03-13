@@ -79,3 +79,23 @@ class SitemapEntry(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.location
+
+
+class Page(models.Model):
+    sitemap_entry = models.OneToOneField(
+        SitemapEntry,
+        on_delete=models.CASCADE,
+        related_name="page",
+        related_query_name="page",
+    )
+    fetched_at = models.DateTimeField()
+    content = models.BinaryField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Page for {self.sitemap_entry.location}"

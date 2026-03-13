@@ -54,3 +54,8 @@ class LinuxFrClient(Client):
                     change_frequency=node.find(f"{SITEMAP_NS}changefreq").text,
                     priority=float(node.find(f"{SITEMAP_NS}priority").text),
                 )
+
+    def get_page(self, url: str) -> bytes:
+        response = self.get(url)
+        response.raise_for_status()
+        return response.content
