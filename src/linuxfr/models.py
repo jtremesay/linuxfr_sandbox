@@ -99,3 +99,11 @@ class Page(models.Model):
 
     def __str__(self) -> str:
         return f"Page for {self.sitemap_entry.location}"
+
+
+class Profile(models.Model):
+    user_name = models.CharField(max_length=255, unique=True)
+    display_name = models.CharField(max_length=255)
+
+    def __str__(self) -> str:
+        return self.user_name

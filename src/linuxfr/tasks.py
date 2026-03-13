@@ -2,11 +2,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from bs4 import BeautifulSoup
 from celery import shared_task
 from django.db.transaction import atomic
 
 from linuxfr.client import LinuxFrClient
-from linuxfr.models import Page, SitemapEntry
+from linuxfr.models import Page, Profile, SitemapEntry
 
 logger = logging.getLogger(__name__)
 
@@ -112,3 +113,28 @@ def import_pages_from_dir(html_dir: str):
             continue
 
         import_page_from_file.delay(str(file_entry), str(html_dir))
+
+
+@shared_task
+def import_profiles_from_page(page_id: int):
+    page = Page.objects.get(id=page_id)
+    soup = BeautifulSoup(page.content, "lxml")
+
+    profiles = {}
+    for profile_link in soup.select("a[rel='author']"):
+        user_name = profile_link["href"].split("/")[-1]
+        display_name = profile_link.text.strip()
+        profiles[user_name] = display_name
+
+    for user_name, display_name in profiles.items():
+        Profile.objects.update_or_create(
+            user_name=user_name,
+            defaults={"display_name": display_name},
+        )
+
+
+@shared_task
+def import_profiles_from_all_pages():
+    page_ids = Page.objects.values_list("id", flat=True)
+    for page_id in page_ids:
+        import_profiles_from_page.delay(page_id)

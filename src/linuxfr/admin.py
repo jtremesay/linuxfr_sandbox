@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 # Register your models here.
-from .models import Page, SitemapEntry
+from .models import Page, Profile, SitemapEntry
 
 
 @admin.register(SitemapEntry)
@@ -30,3 +30,9 @@ class PageAdmin(admin.ModelAdmin):
     list_display = ("sitemap_entry", "fetched_at", "created_at", "updated_at")
     list_filter = ("sitemap_entry__kind", "fetched_at", "created_at", "updated_at")
     search_fields = ("sitemap_entry__location",)
+
+
+@admin.register(Profile)
+class ProfileAdmin(admin.ModelAdmin):
+    list_display = ("user_name", "display_name")
+    search_fields = ("user_name", "display_name")
