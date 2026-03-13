@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 # Register your models here.
-from .models import Page, Profile, SitemapEntry
+from .models import ContentNode, Page, Profile, SitemapEntry
 
 
 @admin.register(SitemapEntry)
@@ -36,3 +36,20 @@ class PageAdmin(admin.ModelAdmin):
 class ProfileAdmin(admin.ModelAdmin):
     list_display = ("user_name", "display_name")
     search_fields = ("user_name", "display_name")
+
+
+@admin.register(ContentNode)
+class ContentNodeAdmin(admin.ModelAdmin):
+    list_display = (
+        "url",
+        "page",
+        "parent",
+        "kind",
+        "title",
+        "author",
+        "score",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("kind", "created_at", "updated_at")
+    search_fields = ("url", "title", "content")

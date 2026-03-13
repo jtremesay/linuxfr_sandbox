@@ -2,12 +2,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, ResultSet, Tag
 from celery import shared_task
 from django.db.transaction import atomic
 
 from linuxfr.client import LinuxFrClient
-from linuxfr.models import Page, Profile, SitemapEntry
+from linuxfr.models import ContentNode, Kind, Page, Profile, SitemapEntry
 
 logger = logging.getLogger(__name__)
 
@@ -138,3 +138,79 @@ def import_profiles_from_all_pages():
     page_ids = Page.objects.values_list("id", flat=True)
     for page_id in page_ids:
         import_profiles_from_page.delay(page_id)
+
+
+def import_comment_from_node(comment_node: Tag, parent: ContentNode):
+    link_title = comment_node.select_one("h2 a.title")
+    content_node, _ = ContentNode.objects.update_or_create(
+        url=link_title["href"],
+        defaults={
+            "page": parent.page,
+            "kind": Kind.COMMENT,
+            "title": link_title.text.strip(),
+            "author": Profile.objects.get(
+                user_name=comment_node.select_one("a[rel='author']")["href"].split("/")[
+                    -1
+                ]
+            ),
+            "parent": parent,
+            "score": int(comment_node.select_one(".score").text.strip().split()[0]),
+            "content": comment_node.select_one(".content").text.strip(),
+        },
+    )
+
+    import_comments_from_node_set(
+        comment_node.select(":scope > ul > .comment"), parent=content_node
+    )
+
+
+def import_comments_from_node_set(comments_node_set: ResultSet, parent: ContentNode):
+    for comment_node in comments_node_set:
+        import_comment_from_node(comment_node, parent)
+
+
+@shared_task
+def import_content_nodes_from_page(page_id: int):
+    page = Page.objects.get(id=page_id)
+
+    soup = BeautifulSoup(page.content, "lxml")
+    root = soup.select_one("#contents")
+
+    article_node = root.select_one("article")
+    if node := article_node.select_one("a[rel='author']"):
+        user_name = node["href"].split("/")[-1]
+        profile = Profile.objects.get(user_name=user_name)
+    else:
+        profile = None
+
+    title = article_node.select_one("h1").text.strip()
+    content = article_node.select_one(".content").text.strip()
+    score = int(article_node.select_one(".score").text.strip())
+
+    with atomic():
+        content_node, _ = ContentNode.objects.update_or_create(
+            url=page.sitemap_entry.location,
+            defaults={
+                "page": page,
+                "kind": page.sitemap_entry.kind,
+                "title": title,
+                "author": profile,
+                "parent": None,
+                "score": score,
+                "content": content,
+            },
+        )
+
+        threads_node = soup.select_one("#comments .threads")
+        if threads_node:
+            import_comments_from_node_set(
+                threads_node.select(":scope > .comment"), parent=content_node
+            )
+
+
+@shared_task
+def import_content_nodes_from_all_pages():
+    # Only out of dates
+    page_ids = Page.objects.values_list("id", flat=True)
+    for page_id in page_ids:
+        import_content_nodes_from_page.delay(page_id)

@@ -107,3 +107,34 @@ class Profile(models.Model):
 
     def __str__(self) -> str:
         return self.user_name
+
+
+class ContentNode(models.Model):
+    page = models.ForeignKey(
+        Page,
+        on_delete=models.CASCADE,
+        related_name="content_nodes",
+        related_query_name="content_nodes",
+    )
+    url = models.URLField(unique=True)
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    title = models.CharField(max_length=255)
+    author = models.ForeignKey(
+        Profile, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        related_name="children",
+        related_query_name="child",
+        null=True,
+        blank=True,
+    )
+    score = models.IntegerField()
+    content = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return self.url
