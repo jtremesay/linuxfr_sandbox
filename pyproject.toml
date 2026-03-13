@@ -11,7 +11,9 @@ dependencies = [
     "ipython>=9.11.0",
     "lxml>=6.0.2",
     "nbformat>=5.10.4",
+    "plotly[express]>=6.6.0",
     "polars>=1.39.0",
+    "pyarrow>=23.0.1",
     "tqdm>=4.67.3",
 ]
 
