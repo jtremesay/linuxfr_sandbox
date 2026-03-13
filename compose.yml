@@ -1,22 +1,66 @@
 services:
+  web:
+    build: .
+    environment:
+      DATABASE_URL: "postgres://linuxfr:linuxfr@db:5432/linuxfr"
+      REDIS_URL: "redis://kv:6379/0"
+    ports:
+      - "8000:8000"
+    #volumes:
+    #  - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: rebuild
+          path: uv.lock
+
+  worker:
+    build: .
+    command: [ "watchfiles", "./run_worker.sh", "src" ]
+    environment:
+      DATABASE_URL: "postgres://linuxfr:linuxfr@db:5432/linuxfr"
+      REDIS_URL: "redis://kv:6379/0"
+    #volumes:
+    #  - ./src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: rebuild
+          path: uv.lock
+
   db:
     image: "pgvector/pgvector:pg18-trixie"
     environment:
       POSTGRES_DB: "linuxfr"
       POSTGRES_USER: "linuxfr"
       POSTGRES_PASSWORD: "linuxfr"
-    volumes:
-      - linuxfr_pgvector_db:/var/lib/postgresql
     ports:
       - "5432:5432"
-  
+    volumes:
+      - linuxfr_pgvector_db:/var/lib/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U linuxfr -d linuxfr" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   kv:
     image: "valkey/valkey:9-alpine"
-    command: ["valkey-server", "--save", "60", "1", "--loglevel", "warning"]
-    volumes:
-      - linuxfr_redis_db:/data
+    command: [ "valkey-server", "--save", "60", "1", "--loglevel", "warning" ]
     ports:
       - "6379:6379"
+    volumes:
+      - linuxfr_redis_db:/data
 
 volumes:
   linuxfr_pgvector_db:
