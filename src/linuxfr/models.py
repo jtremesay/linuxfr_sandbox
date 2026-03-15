@@ -2,6 +2,7 @@ import re
 from typing import Self
 
 from django.db import models
+from pgvector.django import VectorField
 
 
 class UnknownKindError(TypeError):
@@ -138,3 +139,19 @@ class ContentNode(models.Model):
 
     def __str__(self) -> str:
         return self.url
+
+
+class ContentNodeEmbedding(models.Model):
+    content_node = models.OneToOneField(
+        ContentNode,
+        on_delete=models.CASCADE,
+        related_name="embedding",
+        related_query_name="embedding",
+    )
+    vector = VectorField(dimensions=1024)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Embedding for {self.content_node.url}"

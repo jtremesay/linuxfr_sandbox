@@ -1,7 +1,7 @@
 from django.db.models import F
 from django.views.generic import TemplateView
 
-from linuxfr.models import Page, Profile, SitemapEntry
+from linuxfr.models import ContentNode, Page, Profile, SitemapEntry
 
 
 class IndexView(TemplateView):
@@ -18,5 +18,14 @@ class IndexView(TemplateView):
             fetched_at__lt=F("sitemap_entry__last_modified")
         ).count()
         context["profiles_count"] = Profile.objects.count()
+        context["content_nodes_count"] = ContentNode.objects.count()
+        context["content_nodes_without_embedding_vectors_count"] = (
+            ContentNode.objects.filter(embedding__isnull=True).count()
+        )
+        context["content_nodes_without_embedding_vectors_pct"] = (
+            100
+            * context["content_nodes_without_embedding_vectors_count"]
+            / context["content_nodes_count"]
+        )
 
         return context

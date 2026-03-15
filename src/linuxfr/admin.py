@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 # Register your models here.
-from .models import ContentNode, Page, Profile, SitemapEntry
+from .models import ContentNode, ContentNodeEmbedding, Page, Profile, SitemapEntry
 
 
 @admin.register(SitemapEntry)
@@ -53,3 +53,10 @@ class ContentNodeAdmin(admin.ModelAdmin):
     )
     list_filter = ("kind", "created_at", "updated_at")
     search_fields = ("url", "title", "content")
+
+
+@admin.register(ContentNodeEmbedding)
+class ContentNodeEmbeddingAdmin(admin.ModelAdmin):
+    list_display = ("content_node", "vector", "created_at", "updated_at")
+    list_filter = ("created_at", "updated_at")
+    search_fields = ("content_node__url",)

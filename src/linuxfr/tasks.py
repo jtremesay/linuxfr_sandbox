@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup, ResultSet, Tag
 from celery import shared_task
 from django.db.transaction import atomic
 
+from linuxfr.ai import EMBEDDER
 from linuxfr.client import LinuxFrClient
 from linuxfr.models import ContentNode, Kind, Page, Profile, SitemapEntry
 
@@ -214,3 +215,20 @@ def import_content_nodes_from_all_pages():
     page_ids = Page.objects.values_list("id", flat=True)
     for page_id in page_ids:
         import_content_nodes_from_page.delay(page_id)
+
+
+@shared_task
+def update_embedding_for_content_node(content_node_id: int):
+    content_node = ContentNode.objects.get(id=content_node_id)
+    embedding = EMBEDDER.embed_documents_sync([content_node.content])[0]
+    content_node.embedding = embedding
+    content_node.save(update_fields=["embedding"])
+
+
+@shared_task
+def update_embeddings_for_all_content_nodes():
+    content_node_ids = ContentNode.objects.filter(embedding__isnull=True).values_list(
+        "id", flat=True
+    )
+    for content_node_id in content_node_ids:
+        update_embedding_for_content_node.delay(content_node_id)
