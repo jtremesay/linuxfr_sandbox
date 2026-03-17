@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from itertools import batched
 from pathlib import Path
 
 from bs4 import BeautifulSoup, ResultSet, Tag
@@ -8,22 +9,16 @@ from django.db.transaction import atomic
 
 from linuxfr.ai import EMBEDDER
 from linuxfr.client import LinuxFrClient
-from linuxfr.models import ContentNode, Kind, Page, Profile, SitemapEntry
+from linuxfr.models import (
+    ContentNode,
+    ContentNodeEmbedding,
+    Kind,
+    Page,
+    Profile,
+    SitemapEntry,
+)
 
 logger = logging.getLogger(__name__)
-
-
-@shared_task
-def fetch_page(sitemap_entry_id: int):
-    sitemap_entry = SitemapEntry.objects.get(id=sitemap_entry_id)
-    with LinuxFrClient() as client:
-        Page.objects.update_or_create(
-            sitemap_entry=sitemap_entry,
-            defaults={
-                "content": client.get_page(sitemap_entry.location),
-                "fetched_at": datetime.now(timezone.utc),
-            },
-        )
 
 
 @shared_task
@@ -33,32 +28,35 @@ def fetch_sitemap():
 
         remote_locations = {entry.location for entry in remote_sitemap_entries_data}
         local_locations = set(SitemapEntry.objects.values_list("location", flat=True))
+        logger.info(
+            "Fetched %d entries from remote sitemap, %d entries in local database",
+            len(remote_locations),
+            len(local_locations),
+        )
+
+        locations_to_delete = local_locations - remote_locations
+        logger.info(
+            "%d entries to delete, %d entries to upsert",
+            len(locations_to_delete),
+            len(remote_locations - locations_to_delete),
+        )
 
         with atomic():
             # Delete local entries that are not in the remote sitemap
-            SitemapEntry.objects.filter(
-                location__in=local_locations - remote_locations
-            ).delete()
+            for ids in batched(locations_to_delete, 10_000):
+                SitemapEntry.objects.filter(location__in=ids).delete()
 
-            # Update or create entries from the remote sitemap
             for entry_data in remote_sitemap_entries_data:
                 entry, _ = SitemapEntry.objects.update_or_create(
                     location=entry_data.location,
                     defaults={
-                        "kind": entry_data.kind,
                         "last_modified": entry_data.last_modified,
                         "change_frequency": entry_data.change_frequency,
                         "priority": entry_data.priority,
+                        "kind": entry_data.kind,
                     },
                 )
-
-                try:
-                    page = entry.page
-                except SitemapEntry.page.RelatedObjectDoesNotExist:
-                    page = None
-
-                if page is None or page.fetched_at < entry.last_modified:
-                    fetch_page.delay(entry.id)
+                fetch_page.delay(entry.id)
 
 
 @shared_task
@@ -117,6 +115,38 @@ def import_pages_from_dir(html_dir: str):
 
 
 @shared_task
+def fetch_page(sitemap_entry_id: int):
+    sitemap_entry = SitemapEntry.objects.get(id=sitemap_entry_id)
+    try:
+        page = sitemap_entry.page
+    except SitemapEntry.page.RelatedObjectDoesNotExist:
+        page = None
+
+    if page is None or page.fetched_at < sitemap_entry.last_modified:
+        with LinuxFrClient() as client:
+            content = client.get_page(sitemap_entry.location)
+            if page is None:
+                page = Page.objects.create(
+                    sitemap_entry=sitemap_entry,
+                    content=content,
+                    fetched_at=datetime.now(timezone.utc),
+                )
+            else:
+                page.content = content
+                page.fetched_at = datetime.now(timezone.utc)
+                page.save(update_fields=["content", "fetched_at"])
+
+    # TODO: create import_content_nodes_from_page task
+    import_page.delay(page.id)
+
+
+@shared_task
+def import_page(page_id: int):
+    import_profiles_from_page.delay(page_id)
+    import_content_nodes_from_page.delay(page_id)
+
+
+@shared_task
 def import_profiles_from_page(page_id: int):
     page = Page.objects.get(id=page_id)
     soup = BeautifulSoup(page.content, "lxml")
@@ -132,42 +162,6 @@ def import_profiles_from_page(page_id: int):
             user_name=user_name,
             defaults={"display_name": display_name},
         )
-
-
-@shared_task
-def import_profiles_from_all_pages():
-    page_ids = Page.objects.values_list("id", flat=True)
-    for page_id in page_ids:
-        import_profiles_from_page.delay(page_id)
-
-
-def import_comment_from_node(comment_node: Tag, parent: ContentNode):
-    link_title = comment_node.select_one("h2 a.title")
-    content_node, _ = ContentNode.objects.update_or_create(
-        url=link_title["href"],
-        defaults={
-            "page": parent.page,
-            "kind": Kind.COMMENT,
-            "title": link_title.text.strip(),
-            "author": Profile.objects.get(
-                user_name=comment_node.select_one("a[rel='author']")["href"].split("/")[
-                    -1
-                ]
-            ),
-            "parent": parent,
-            "score": int(comment_node.select_one(".score").text.strip().split()[0]),
-            "content": comment_node.select_one(".content").text.strip(),
-        },
-    )
-
-    import_comments_from_node_set(
-        comment_node.select(":scope > ul > .comment"), parent=content_node
-    )
-
-
-def import_comments_from_node_set(comments_node_set: ResultSet, parent: ContentNode):
-    for comment_node in comments_node_set:
-        import_comment_from_node(comment_node, parent)
 
 
 @shared_task
@@ -188,47 +182,74 @@ def import_content_nodes_from_page(page_id: int):
     content = article_node.select_one(".content").text.strip()
     score = int(article_node.select_one(".score").text.strip())
 
-    with atomic():
-        content_node, _ = ContentNode.objects.update_or_create(
-            url=page.sitemap_entry.location,
-            defaults={
-                "page": page,
-                "kind": page.sitemap_entry.kind,
-                "title": title,
-                "author": profile,
-                "parent": None,
-                "score": score,
-                "content": content,
-            },
+    content_node, _ = ContentNode.objects.update_or_create(
+        url=page.sitemap_entry.location,
+        defaults={
+            "page": page,
+            "kind": page.sitemap_entry.kind,
+            "title": title,
+            "author": profile,
+            "parent": None,
+            "score": score,
+            "content": content,
+            "published_at": article_node.select_one("time")["datetime"],
+        },
+    )
+    generate_embedding_for_content_node.delay(content_node.id)
+
+    threads_node = soup.select_one("#comments .threads")
+    if threads_node:
+        import_comments_from_node_set(
+            threads_node.select(":scope > .comment"), parent=content_node
         )
 
-        threads_node = soup.select_one("#comments .threads")
-        if threads_node:
-            import_comments_from_node_set(
-                threads_node.select(":scope > .comment"), parent=content_node
-            )
+
+def import_comments_from_node_set(comments_node_set: ResultSet, parent: ContentNode):
+    for comment_node in comments_node_set:
+        import_comment_from_node(comment_node, parent)
 
 
-@shared_task
-def import_content_nodes_from_all_pages():
-    # Only out of dates
-    page_ids = Page.objects.values_list("id", flat=True)
-    for page_id in page_ids:
-        import_content_nodes_from_page.delay(page_id)
-
-
-@shared_task
-def update_embedding_for_content_node(content_node_id: int):
-    content_node = ContentNode.objects.get(id=content_node_id)
-    embedding = EMBEDDER.embed_documents_sync([content_node.content])[0]
-    content_node.embedding = embedding
-    content_node.save(update_fields=["embedding"])
-
-
-@shared_task
-def update_embeddings_for_all_content_nodes():
-    content_node_ids = ContentNode.objects.filter(embedding__isnull=True).values_list(
-        "id", flat=True
+def import_comment_from_node(comment_node: Tag, parent: ContentNode):
+    link_title = comment_node.select_one("h2 a.title")
+    link_title = comment_node.select_one("h2 a.title")
+    content_node, _ = ContentNode.objects.update_or_create(
+        url=link_title["href"],
+        defaults={
+            "page": parent.page,
+            "kind": Kind.COMMENT,
+            "title": link_title.text.strip(),
+            "author": Profile.objects.get(
+                user_name=comment_node.select_one("a[rel='author']")["href"].split("/")[
+                    -1
+                ]
+            ),
+            "parent": parent,
+            "score": int(comment_node.select_one(".score").text.strip().split()[0]),
+            "content": comment_node.select_one(".content").text.strip(),
+            "published_at": comment_node.select_one("time")["datetime"],
+        },
     )
-    for content_node_id in content_node_ids:
-        update_embedding_for_content_node.delay(content_node_id)
+    generate_embedding_for_content_node.delay(content_node.id)
+
+    import_comments_from_node_set(
+        comment_node.select(":scope > ul > .comment"), parent=content_node
+    )
+
+
+@shared_task
+def generate_embedding_for_content_node(content_node_id: int):
+    content_node = ContentNode.objects.get(id=content_node_id)
+
+    try:
+        embedding = ContentNodeEmbedding.objects.get(content_node=content_node)
+    except ContentNodeEmbedding.DoesNotExist:
+        embedding = None
+
+    if embedding is None or embedding.generated_at < content_node.published_at:
+        ContentNodeEmbedding.objects.update_or_create(
+            content_node=content_node,
+            defaults={
+                "vector": EMBEDDER.embed_documents_sync([content_node.content])[0],
+                "generated_at": datetime.now(timezone.utc),
+            },
+        )

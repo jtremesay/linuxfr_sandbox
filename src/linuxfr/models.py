@@ -133,6 +133,9 @@ class ContentNode(models.Model):
     )
     score = models.IntegerField()
     content = models.TextField()
+    published_at = (
+        models.DateTimeField()
+    )  # Initial or last published date, from the content itself
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -149,6 +152,7 @@ class ContentNodeEmbedding(models.Model):
         related_query_name="embedding",
     )
     vector = VectorField(dimensions=1024)
+    generated_at = models.DateTimeField()
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
