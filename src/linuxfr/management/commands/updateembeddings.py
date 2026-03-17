@@ -19,7 +19,7 @@ class Command(BaseCommand):
                     | Q(embedding__updated_at__lt=F("updated_at"))
                 )
             ),
-            100,
+            10,
         ):
             r = EMBEDDER.embed_query_sync([cn.content for cn in content_node])
             for cn, embedding in zip(content_node, r.embeddings):
