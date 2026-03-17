@@ -1,7 +1,12 @@
-from django.db.models import F
 from django.views.generic import TemplateView
 
-from linuxfr.models import ContentNode, Page, Profile, SitemapEntry
+from linuxfr.models import (
+    ContentNode,
+    ContentNodeEmbedding,
+    Page,
+    Profile,
+    SitemapEntry,
+)
 
 
 class IndexView(TemplateView):
@@ -11,16 +16,14 @@ class IndexView(TemplateView):
         context = super().get_context_data(**kwargs)
         context["sitemap_entries_count"] = SitemapEntry.objects.count()
         context["pages_count"] = Page.objects.count()
-        context["missing_pages_count"] = SitemapEntry.objects.filter(
-            page__isnull=True
-        ).count()
-        context["out_of_date_pages_count"] = Page.objects.filter(
-            fetched_at__lt=F("sitemap_entry__last_modified")
-        ).count()
+        context["missing_pages_count"] = (
+            context["sitemap_entries_count"] - context["pages_count"]
+        )
         context["profiles_count"] = Profile.objects.count()
         context["content_nodes_count"] = ContentNode.objects.count()
+        context["embedding_vectors_count"] = ContentNodeEmbedding.objects.count()
         context["content_nodes_without_embedding_vectors_count"] = (
-            ContentNode.objects.filter(embedding__isnull=True).count()
+            context["content_nodes_count"] - context["embedding_vectors_count"]
         )
         context["content_nodes_without_embedding_vectors_pct"] = (
             100
