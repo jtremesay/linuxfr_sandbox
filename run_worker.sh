@@ -1,4 +1,4 @@
 #!/bin/sh
 set -ex
 
-exec celery -A linuxfr worker --loglevel=info
+exec celery -A linuxfr worker --loglevel=info -E
