@@ -14,7 +14,6 @@ import os
 from pathlib import Path
 
 import dj_database_url
-import logfire
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path().resolve()
@@ -151,12 +150,3 @@ else:
     os.environ["OLLAMA_BASE_URL"] = OLLAMA_BASE_URL
 
 EMBEDDING_MODEL = "ollama:qwen3-embedding:0.6b"
-
-# Logfire
-logfire.configure(send_to_logfire="if-token-present")
-# logfire.instrument_django(is_sql_commentor_enabled=True)
-# logfire.instrument_django()
-# logfire.instrument_celery()
-# logfire.instrument_pydantic_ai()
-# logfire.instrument_psycopg(enable_commenter=True)
-# logfire.instrument_redis()
